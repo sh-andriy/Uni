@@ -1,0 +1,44 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "generic/ubuntu2204"
+
+  config.vm.provider "parallels" do |prl|
+    prl.memory = 2048 # Set memory
+    prl.cpus = 2      # Set CPUs
+  end
+
+  config.vm.provision "shell", inline: <<-SHELL
+    apt-get update
+    apt-get install -y lvm2 parted
+
+    # Simulate disks (Parallels doesn't support extra disks directly in Vagrant)
+    mkdir -p /disk-simulation
+    for i in {1..4}; do
+      dd if=/dev/zero of=/disk-simulation/disk$i.img bs=1M count=400
+      losetup /dev/loop$i /disk-simulation/disk$i.img
+      parted --script /dev/loop$i mklabel gpt
+      parted --script /dev/loop$i mkpart primary 0% 100%
+    done
+
+    for i in {1..4}; do
+      pvcreate /dev/loop${i}p1
+    done
+
+    vgcreate vg_hometask6 /dev/loop{1,2,3,4}p1
+
+    lvcreate -L 800M -n vol0 vg_hometask6
+    lvcreate -L 800M -n vol1 vg_hometask6
+
+    mkfs.ext4 /dev/vg_hometask6/vol0
+    mkfs.ext4 /dev/vg_hometask6/vol1
+
+    mkdir -p /mnt/vol0 /mnt/vol1
+
+    # Mount the logical volumes
+    mount /dev/vg_hometask6/vol0 /mnt/vol0
+    mount /dev/vg_hometask6/vol1 /mnt/vol1
+
+    # Update /etc/fstab to persist mounts
+    echo '/dev/vg_hometask6/vol0 /mnt/vol0 ext4 defaults 0 0' >> /etc/fstab
+    echo '/dev/vg_hometask6/vol1 /mnt/vol1 ext4 defaults 0 0' >> /etc/fstab
+  SHELL
+end
